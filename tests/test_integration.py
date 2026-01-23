@@ -32,6 +32,7 @@ async def test_device_request(
     response = json.loads(await ws_client.recv())
     assert response[0]["success"] is True
     assert response[0]["request_id"] == "1"
+    assert response[0]["metadata"]["source"] == device_service_name
 
 
 @pytest.mark.asyncio
@@ -86,8 +87,10 @@ async def test_multi_service_request(
     response = json.loads(await ws_client.recv())
     assert response[0]["success"] is True
     assert response[0]["request_id"] == "1"
+    assert response[0]["metadata"]["source"] == "lemonbeatd"
     assert response[1]["success"] is True
     assert response[1]["request_id"] == "2"
+    assert response[1]["metadata"]["source"] == "lwm2mserver"
 
 
 @pytest.mark.asyncio
