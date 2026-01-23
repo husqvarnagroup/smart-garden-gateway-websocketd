@@ -53,12 +53,6 @@ struct Msg {
     success: Option<bool>,
 }
 
-enum DeviceService {
-    Lemonbeatd,
-    Lwm2mserver,
-    None,
-}
-
 impl Msg {
     fn from_json(json: &str) -> Result<Self, String> {
         match serde_json::from_str::<Vec<Msg>>(json) {
@@ -90,22 +84,6 @@ impl Msg {
 
     fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(&vec![self])
-    }
-
-    fn device_service(&self) -> DeviceService {
-        let Some(entity) = &self.entity else {
-            error!("No entity field in message: {:?}", self);
-            return DeviceService::None;
-        };
-
-        if let Some(service) = &entity.service {
-            if service == "lemonbeatd" {
-                return DeviceService::Lemonbeatd;
-            } else if service == "lwm2mserver" {
-                return DeviceService::Lwm2mserver;
-            }
-        }
-        DeviceService::None
     }
 }
 
@@ -244,11 +222,20 @@ async fn forward_req(
     req_lb_tx: mpsc::Sender<(Msg, oneshot::Sender<Msg>)>,
     req_lw_tx: mpsc::Sender<(Msg, oneshot::Sender<Msg>)>,
 ) -> Msg {
-    let req_tx = match req_msg.device_service() {
-        DeviceService::Lemonbeatd => &req_lb_tx,
-        DeviceService::Lwm2mserver => &req_lw_tx,
-        DeviceService::None => {
-            return Msg::from_error_msg("Invalid entity.service provided");
+    let Some(device_service_name) = req_msg
+        .entity
+        .as_ref()
+        .and_then(|e| e.service.as_deref())
+        .map(str::to_string)
+    else {
+        return Msg::from_error_msg("Failed to route request, entity.service field missing?");
+    };
+
+    let req_tx = match device_service_name.as_str() {
+        "lemonbeatd" => &req_lb_tx,
+        "lwm2mserver" => &req_lw_tx,
+        _ => {
+            return Msg::from_error_msg("Failed to route request, invalid entity.service field");
         }
     };
 
@@ -266,7 +253,13 @@ async fn forward_req(
     }
 
     match rx.await {
-        Ok(rep_msg) => rep_msg,
+        Ok(mut rep_msg) => {
+            rep_msg.metadata.get_or_insert_with(HashMap::new).insert(
+                "source".to_string(),
+                serde_json::Value::String(device_service_name),
+            );
+            rep_msg
+        }
         Err(e) => {
             error!("Failed to receive reply from IPC: {e:?}");
             Msg::from_error_msg("Internal error")
