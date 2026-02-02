@@ -3,9 +3,11 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinSet;
+use tokio::time::timeout;
 use tokio_native_tls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::http::Response;
 use tokio_tungstenite::tungstenite::http::StatusCode;
@@ -22,6 +24,7 @@ const TLS_KEY_PATH: &str = "/etc/gateway-config-interface/key.pem";
 const TLS_CERT_PATH_DEV: &str = "./dev-cert.pem";
 const TLS_KEY_PATH_DEV: &str = "./dev-key.pem";
 const CHANNEL_CAPACITY: usize = 32; // arbitrary value
+const IPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 static PASSWORD: OnceLock<String> = OnceLock::new();
 
@@ -362,8 +365,12 @@ async fn run_req_service(
                     }
                 };
 
-                let mut rep_msg = match req_service.send(req_json.clone()).await {
-                    Ok(json) => {
+                let mut rep_msg = match timeout(IPC_REQUEST_TIMEOUT, req_service.send(req_json.clone())).await {
+                    Err(_) => {
+                        error!("Did not get a response from {socket_path} within {}s", IPC_REQUEST_TIMEOUT.as_secs());
+                        Msg::from_error_msg("Request timed out")
+                    }
+                    Ok(Ok(json)) => {
                         let msg = match Msg::from_json(&json) {
                             Ok(m) => m,
                             Err(e) => {
@@ -375,8 +382,8 @@ async fn run_req_service(
                         };
                         debug!("Received reply from {socket_path}: {msg:?}");
                         msg
-                    },
-                    Err(e) => Msg::from_error_msg(format!("Failed to send request {req_json}, error: {e:?}").as_str())
+                    }
+                    Ok(Err(e)) => Msg::from_error_msg(&format!("Failed to send request {req_json}, error: {e:?}"))
                 };
 
                 rep_msg.request_id = request_id;
