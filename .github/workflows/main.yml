@@ -25,3 +25,13 @@ jobs:
         run: |
           rustup toolchain install 1.75.0
           rustup run 1.75.0 cargo build
+
+      - name: Build with default Rust version
+        run: |
+          rustc --version
+          cargo build
+
+      - name: Run integration tests
+        run: |
+          python3 -m pip install -r tests/requirements.txt
+          python3 -m pytest -v
