@@ -213,7 +213,6 @@ async fn ws_sender<S>(
                     }
                     Err(broadcast::error::RecvError::Lagged(count)) => {
                         warn!("WebSocket receiver lagged behind, skipped {count} messages");
-                        continue;
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -377,7 +376,7 @@ async fn run_req_service(
                             Err(e) => {
                                 error!("Failed to parse reply: {json}, error: {e:?}");
                                 let mut err_msg = Msg::from_error_msg(format!("Failed to parse reply: {e:?}").as_str());
-                                err_msg.request_id = request_id.clone();
+                                err_msg.request_id.clone_from(&request_id);
                                 err_msg
                             },
                         };
