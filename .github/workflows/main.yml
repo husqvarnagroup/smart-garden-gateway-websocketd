@@ -1,0 +1,27 @@
+on: pull_request
+
+name: CI
+
+jobs:
+  QA:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Show versions
+        run: |
+          rustc --version
+          cargo --version
+          cargo clippy --version
+          cargo fmt --version
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -Dwarnings -Dclippy::all -Dclippy::pedantic
+
+      - name: Run Rustfmt
+        run: cargo fmt --check
+
+      - name: Build with Rust version on GARDENA smart Gateway
+        run: |
+          rustup toolchain install 1.75.0
+          rustup run 1.75.0 cargo build
