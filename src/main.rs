@@ -363,15 +363,16 @@ async fn run_req_service(
                 let req_json = match req_msg.to_json() {
                     Ok(json) => json,
                     Err(e) => {
-                        let err_msg = Msg::from_error_msg(format!("Failed to serialize request: {e:?}").as_str());
+                        let mut err_msg = Msg::from_error_msg(format!("Failed to serialize request: {e:?}").as_str());
+                        err_msg.request_id = request_id;
                         let _ = rep_tx.send(err_msg);
                         continue;
                     }
                 };
 
-                let rep_msg = match req_service.send(req_json.clone()).await {
+                let mut rep_msg = match req_service.send(req_json.clone()).await {
                     Ok(json) => {
-                        let mut msg = match Msg::from_json(&json) {
+                        let msg = match Msg::from_json(&json) {
                             Ok(m) => m,
                             Err(e) => {
                                 error!("Failed to parse reply: {json}, error: {e:?}");
@@ -380,12 +381,14 @@ async fn run_req_service(
                                 err_msg
                             },
                         };
-                        msg.request_id = request_id;
                         debug!("Received reply from {socket_path}: {msg:?}");
                         msg
                     },
                     Err(e) => Msg::from_error_msg(format!("Failed to send request {req_json}, error: {e:?}").as_str())
                 };
+
+                rep_msg.request_id = request_id;
+
                 if let Err(e) = rep_tx.send(rep_msg) {
                     debug!("Failed to send reply (connection likely closed): {e:?}");
                 }
