@@ -328,22 +328,6 @@ async fn run_req_service(
     mut req_rx: mpsc::Receiver<(Msg, oneshot::Sender<Msg>)>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
-    let mut req_service = tokio::select! {
-        _ = shutdown_rx.changed() => {
-            debug!("Task for {socket_path} not started: shutdown requested");
-            return;
-        }
-        res = sg_ipc::ReqService::new(socket_path) => {
-            match res {
-                Ok(service) => service,
-                Err(e) => {
-                    error!("Failed to create IPC ReqService for {socket_path}: {e:?}");
-                    return;
-                }
-            }
-        }
-    };
-
     loop {
         tokio::select! {
             _ = shutdown_rx.changed() => {
@@ -367,6 +351,14 @@ async fn run_req_service(
                         err_msg.request_id = request_id;
                         let _ = rep_tx.send(err_msg);
                         continue;
+                    }
+                };
+
+                let mut req_service = match sg_ipc::ReqService::new(socket_path).await {
+                    Ok(service) => service,
+                    Err(e) => {
+                        error!("Failed to create IPC ReqService for {socket_path}: {e:?}");
+                        return;
                     }
                 };
 
