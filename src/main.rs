@@ -185,7 +185,7 @@ fn check_basic_auth(auth_header: Option<&str>) -> bool {
 async fn ws_sender<S>(
     mut ws: S,
     mut pub_rx: broadcast::Receiver<Msg>,
-    mut rep_rx: mpsc::Receiver<Msg>,
+    mut rep_rx: mpsc::Receiver<Vec<Msg>>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) where
     S: futures_util::Sink<Message> + Unpin + Send + 'static,
@@ -220,12 +220,12 @@ async fn ws_sender<S>(
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
-            Some(msg) = rep_rx.recv() => {
-                debug!("Forwarding reply to WebSocket: {msg:?}");
-                let msg_json = match msg.to_json() {
+            Some(msgs) = rep_rx.recv() => {
+                debug!("Forwarding replies to WebSocket: {msgs:?}");
+                let msg_json = match serde_json::to_string(&msgs) {
                     Ok(json) => json,
                     Err(e) => {
-                        error!("Failed to serialize client message to JSON: {e:?}");
+                        error!("Failed to serialize replies to JSON: {e:?}");
                         continue;
                     }
                 };
@@ -238,11 +238,47 @@ async fn ws_sender<S>(
     }
 }
 
+#[allow(clippy::similar_names)] // req_msg/rep_msg
+async fn forward_req(
+    mut req_msg: Msg,
+    req_lb_tx: mpsc::Sender<(Msg, oneshot::Sender<Msg>)>,
+    req_lw_tx: mpsc::Sender<(Msg, oneshot::Sender<Msg>)>,
+) -> Msg {
+    let req_tx = match req_msg.device_service() {
+        DeviceService::Lemonbeatd => &req_lb_tx,
+        DeviceService::Lwm2mserver => &req_lw_tx,
+        DeviceService::None => {
+            return Msg::from_error_msg("Invalid entity.service provided");
+        }
+    };
+
+    // Device services (currently) do not expect entity.service for requests targeted at devices
+    if let Some(entity) = &mut req_msg.entity {
+        if entity.device.is_some() {
+            entity.service = None;
+        }
+    }
+
+    let (tx, rx) = oneshot::channel();
+    if let Err(e) = req_tx.send((req_msg, tx)).await {
+        error!("Failed to forward request to IPC: {e:?}");
+        return Msg::from_error_msg("Internal error");
+    }
+
+    match rx.await {
+        Ok(rep_msg) => rep_msg,
+        Err(e) => {
+            error!("Failed to receive reply from IPC: {e:?}");
+            Msg::from_error_msg("Internal error")
+        }
+    }
+}
+
 async fn ws_receiver<S>(
     mut ws: S,
     req_lb_tx: mpsc::Sender<(Msg, oneshot::Sender<Msg>)>,
     req_lw_tx: mpsc::Sender<(Msg, oneshot::Sender<Msg>)>,
-    rep_tx: mpsc::Sender<Msg>,
+    rep_tx: mpsc::Sender<Vec<Msg>>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) where
     S: futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
@@ -265,45 +301,30 @@ async fn ws_receiver<S>(
                     Ok(Message::Text(json)) => {
                         debug!("Received request from WebSocket: {json}");
 
-                        let Ok(mut req_msg) = Msg::from_json(&json) else {
-                            let err_msg = Msg::from_error_msg("Failed to parse JSON");
-                            let _ = rep_tx.send(err_msg).await;
-                            continue;
-                        };
+                        match serde_json::from_str::<Vec<Msg>>(&json) {
+                            Ok(vec) if !vec.is_empty() => {
+                                let mut tasks = JoinSet::new();
+                                for msg in vec {
+                                    let req_lb_tx = req_lb_tx.clone();
+                                    let req_lw_tx = req_lw_tx.clone();
+                                    tasks.spawn(forward_req(msg, req_lb_tx, req_lw_tx));
+                                }
 
-                        let req_tx = match req_msg.device_service() {
-                            DeviceService::Lemonbeatd => &req_lb_tx,
-                            DeviceService::Lwm2mserver => &req_lw_tx,
-                            DeviceService::None => {
-                                let err_msg = Msg::from_error_msg("Invalid entity.service provided");
-                                let _ = rep_tx.send(err_msg).await;
-                                continue;
+                                let mut rep_msgs = Vec::new();
+                                while let Some(res) = tasks.join_next().await {
+                                    if let Ok(rep_msg) = res {
+                                        rep_msgs.push(rep_msg);
+                                    }
+                                }
+                                let _ = rep_tx.send(rep_msgs).await;
                             }
-                        };
-
-                        // Device services (currently) do not expect entity.service for requests targeted at devices
-                        if let Some(entity) = &mut req_msg.entity {
-                            if entity.device.is_some() {
-                                entity.service = None;
-                            }
-                        }
-
-                        let (tx, rx) = oneshot::channel();
-                        if let Err(e) = req_tx.send((req_msg, tx)).await {
-                            error!("Failed to forward request to IPC: {e:?}");
-                            let err_msg = Msg::from_error_msg("Internal error");
-                            let _ = rep_tx.send(err_msg).await;
-                            continue;
-                        }
-
-                        match rx.await {
-                            Ok(rep) => {
-                                let _ = rep_tx.send(rep).await;
+                            Ok(_) => {
+                                let err_msg = Msg::from_error_msg("Received empty array");
+                                let _ = rep_tx.send(vec![err_msg]).await;
                             }
                             Err(e) => {
-                                error!("Failed to receive reply from IPC: {e:?}");
-                                let err_msg = Msg::from_error_msg("Internal error");
-                                let _ = rep_tx.send(err_msg).await;
+                                let err_msg = Msg::from_error_msg(&format!("Failed to parse JSON: {e:?}"));
+                                let _ = rep_tx.send(vec![err_msg]).await;
                             }
                         }
                     }
@@ -313,7 +334,7 @@ async fn ws_receiver<S>(
                     }
                     Ok(_) => {
                         let err_msg = Msg::from_error_msg("Received non-text data");
-                        let _ = rep_tx.send(err_msg).await;
+                        let _ = rep_tx.send(vec![err_msg]).await;
                     }
                     Err(e) => {
                         error!("WebSocket read error: {e:?}");
@@ -488,7 +509,7 @@ async fn run_ws_accept_loop(
                                             debug!("New WebSocket connection established from {addr}");
                                             let (ws_write, ws_read) = ws.split();
                                             let pub_rx = pub_tx.subscribe();
-                                            let (rep_tx, rep_rx) = mpsc::channel::<Msg>(CHANNEL_CAPACITY);
+                                            let (rep_tx, rep_rx) = mpsc::channel::<Vec<Msg>>(CHANNEL_CAPACITY);
                                             let shutdown_rx = shutdown_rx.clone();
 
                                             tokio::spawn(ws_sender(ws_write, pub_rx, rep_rx, shutdown_rx.clone()));

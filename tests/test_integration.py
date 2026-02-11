@@ -21,7 +21,7 @@ async def test_device_request(
         entity_service=device_service_name,
         request_id="1",
     )
-    await ws_client.send(json.dumps(msg))
+    await ws_client.send(json.dumps([msg]))
     await asyncio.sleep(0.1)
 
     requests = device_service["command"].received_requests
@@ -49,7 +49,7 @@ async def test_service_request(
         entity_service=device_service_name,
         request_id="1",
     )
-    await ws_client.send(json.dumps(msg))
+    await ws_client.send(json.dumps([msg]))
     await asyncio.sleep(0.1)
 
     requests = device_service["command"].received_requests
@@ -59,6 +59,35 @@ async def test_service_request(
     response = json.loads(await ws_client.recv())
     assert response[0]["success"] is True
     assert response[0]["request_id"] == "1"
+    assert response[0]["metadata"]["source"] == device_service_name
+
+
+@pytest.mark.asyncio
+async def test_multi_service_request(
+    device_services,
+    websocketd,
+    ws_client,
+):
+    msg1 = make_msg(
+        op="read",
+        entity_path="devices",
+        entity_service="lemonbeatd",
+        request_id="1",
+    )
+    msg2 = make_msg(
+        op="read",
+        entity_path="devices",
+        entity_service="lwm2mserver",
+        request_id="2",
+    )
+    await ws_client.send(json.dumps([msg1, msg2]))
+    await asyncio.sleep(0.1)
+
+    response = json.loads(await ws_client.recv())
+    assert response[0]["success"] is True
+    assert response[0]["request_id"] == "1"
+    assert response[1]["success"] is True
+    assert response[1]["request_id"] == "2"
 
 
 @pytest.mark.asyncio
@@ -70,7 +99,7 @@ async def test_event(
     device_service_name,
 ):
     device_service = device_services[device_service_name]
-    event = make_msg(op="update", entity_path="/status", payload={"state": "on"})
+    event = [make_msg(op="update", entity_path="/status", payload={"state": "on"})]
     await device_service["event"].publish_event(event)
 
     response = json.loads(await asyncio.wait_for(ws_client.recv(), timeout=2.0))
