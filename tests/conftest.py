@@ -43,7 +43,7 @@ def make_msg(
         msg["success"] = success
     if metadata:
         msg["metadata"] = metadata
-    return [msg]
+    return msg
 
 
 @pytest.fixture(scope="session")
