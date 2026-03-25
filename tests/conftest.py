@@ -231,13 +231,14 @@ async def websocketd(project_root):
 
 
 @pytest_asyncio.fixture
-async def ws_client():
+async def ws_client(request):
+    host = getattr(request, "param", "127.0.0.1")
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
     credentials = base64.b64encode(b"user:password-for-dev").decode()
     async with websockets.connect(
-        "wss://localhost:8443",
+        f"wss://{host}:8443",
         ssl=ssl_context,
         additional_headers={"Authorization": f"Basic {credentials}"},
     ) as ws:
