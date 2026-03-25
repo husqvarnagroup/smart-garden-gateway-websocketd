@@ -447,6 +447,7 @@ async fn run_sub_service(
     }
 }
 
+#[allow(clippy::result_large_err)] // Tungstenite's Callback trait dictates the Err type as Response<Option<String>>
 async fn run_ws_accept_loop(
     listener: tokio::net::TcpListener,
     tls_acceptor: TlsAcceptor,
