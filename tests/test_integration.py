@@ -64,6 +64,7 @@ async def test_service_request(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ws_client", ["127.0.0.1", "[::1]"], indirect=True)
 async def test_multi_service_request(
     device_services,
     websocketd,

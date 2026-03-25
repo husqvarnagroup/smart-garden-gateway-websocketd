@@ -628,7 +628,7 @@ async fn main() -> anyhow::Result<()> {
         "lwm2mserver",
     ));
 
-    let host = format!("0.0.0.0:{PORT}");
+    let host = format!("[::]:{PORT}");
     let listener = tokio::net::TcpListener::bind(&host).await?;
     info!("WebSocket server listening on wss://{host}");
 
