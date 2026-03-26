@@ -10,7 +10,6 @@ base64 = "0.22"
 futures-util = "0.3"
 gardenalog = { git = "https://github.com/husqvarnagroup/smart-garden-gateway-crates.git" }
 hostname = "0.4"
-local-ip-address = "0.6"
 mdns-sd = "0.18"
 native-tls = "=0.2.13" # held back for Rust 1.75.0
 serde = { version = "1.0", features = ["derive"] }
