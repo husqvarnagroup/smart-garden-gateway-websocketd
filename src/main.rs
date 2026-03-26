@@ -567,7 +567,6 @@ fn register_mdns_service() -> anyhow::Result<mdns_sd::ServiceDaemon> {
     let mdns = mdns_sd::ServiceDaemon::new()?;
     let hostname = hostname::get()?.to_string_lossy().to_string();
     let hostname_local = format!("{hostname}.local.");
-    let local_ip = local_ip_address::local_ip()?.to_string();
     let service_type = "_gardena-smart._tcp.local.";
     let instance_name = format!("GARDENA smart Gateway {hostname}");
 
@@ -575,13 +574,14 @@ fn register_mdns_service() -> anyhow::Result<mdns_sd::ServiceDaemon> {
         service_type,
         &instance_name,
         &hostname_local,
-        &local_ip,
+        "",
         PORT,
         &[("path", "/"), ("tls", "true"), ("auth", "basic")][..],
-    )?;
+    )?
+    .enable_addr_auto();
 
     mdns.register(service)?;
-    info!("Registered mDNS service: {instance_name} at {hostname_local}:{PORT} ({local_ip})");
+    info!("Registered mDNS service: {instance_name} at {hostname_local}:{PORT}");
 
     Ok(mdns)
 }
