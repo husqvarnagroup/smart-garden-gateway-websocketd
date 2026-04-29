@@ -325,9 +325,8 @@ async fn ws_receiver<S>(
                         debug!("WebSocket connection closed: {frame:?}");
                         break;
                     }
-                    Ok(_) => {
-                        let err_msg = Msg::from_error_msg("Received non-text data");
-                        let _ = rep_tx.send(vec![err_msg]).await;
+                    Ok(other) => {
+                        debug!("Ignoring non-text WebSocket message: {other:?}");
                     }
                     Err(e) => {
                         error!("WebSocket read error: {e:?}");
