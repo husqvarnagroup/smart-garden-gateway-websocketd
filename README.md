@@ -1,8 +1,10 @@
 # GARDENA smart Gateway WebSocket daemon
 
 Enables controlling and monitoring GARDENA smart system devices in the
-local network, without going through the cloud. A corresponding
-integration for e.g. Home Assistant is yet to be developed.
+local network, without going through the cloud. A corresponding Python
+library and Home Assistant integration is being developed [here][1].
+
+[1]: https://github.com/cloudless-garden
 
 ## Enabling WebSocket support on the gateway
 

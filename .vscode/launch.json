@@ -8,6 +8,9 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug",
+            "env": {
+                "RUST_LOG": "websocketd=debug"
+            },
             "program": "${workspaceFolder}/target/debug/websocketd",
             "args": [],
             "cwd": "${workspaceFolder}"
