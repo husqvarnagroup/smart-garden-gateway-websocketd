@@ -562,27 +562,22 @@ async fn wait_for_shutdown_signal(shutdown_tx: watch::Sender<bool>) {
     let _ = shutdown_tx.send(true);
 }
 
-fn register_mdns_service() -> anyhow::Result<mdns_sd::ServiceDaemon> {
-    let mdns = mdns_sd::ServiceDaemon::new()?;
+fn register_mdns_service() -> anyhow::Result<astro_dnssd::RegisteredDnsService> {
     let hostname = hostname::get()?.to_string_lossy().to_string();
     let hostname_local = format!("{hostname}.local.");
-    let service_type = "_gardena-smart._tcp.local.";
+    let service_type = "_gardena-smart._tcp";
+
     let instance_name = format!("GARDENA smart Gateway {hostname}");
 
-    let service = mdns_sd::ServiceInfo::new(
-        service_type,
-        &instance_name,
-        &hostname_local,
-        "",
-        PORT,
-        &[("path", "/"), ("tls", "true"), ("auth", "basic")][..],
-    )?
-    .enable_addr_auto();
+    let service = astro_dnssd::DNSServiceBuilder::new(service_type, PORT)
+        .with_name(&instance_name)
+        .with_key_value("path".into(), "/".into())
+        .with_key_value("tls".into(), "true".into())
+        .with_key_value("auth".into(), "basic".into())
+        .register()?;
 
-    mdns.register(service)?;
     info!("Registered mDNS service: {instance_name} at {hostname_local}:{PORT}");
-
-    Ok(mdns)
+    Ok(service)
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -643,8 +638,8 @@ async fn main() -> anyhow::Result<()> {
         shutdown_rx.clone(),
     ));
 
-    let mdns = match register_mdns_service() {
-        Ok(daemon) => Some(daemon),
+    let _mdns = match register_mdns_service() {
+        Ok(service) => Some(service),
         Err(e) => {
             warn!("Failed to register mDNS service: {e:?}");
             None
@@ -653,14 +648,6 @@ async fn main() -> anyhow::Result<()> {
 
     let _ = shutdown_rx.changed().await;
     info!("Shutting down...");
-
-    if let Some(daemon) = mdns {
-        if let Err(e) = daemon.shutdown() {
-            warn!("Failed to shutdown mDNS service: {e:?}");
-        } else {
-            debug!("mDNS service unregistered");
-        }
-    }
 
     while let Some(res) = tasks.join_next().await {
         if let Err(e) = res {

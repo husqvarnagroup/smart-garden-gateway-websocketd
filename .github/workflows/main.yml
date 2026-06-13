@@ -15,6 +15,11 @@ jobs:
           cargo clippy --version
           cargo fmt --version
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libavahi-compat-libdnssd-dev
+
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -Dwarnings -Dclippy::all -Dclippy::pedantic
 
