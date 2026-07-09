@@ -11,6 +11,7 @@ use tokio::time::timeout;
 use tokio_native_tls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::http::Response;
 use tokio_tungstenite::tungstenite::http::StatusCode;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
@@ -25,6 +26,13 @@ const TLS_CERT_PATH_DEV: &str = "./dev-cert.pem";
 const TLS_KEY_PATH_DEV: &str = "./dev-key.pem";
 const CHANNEL_CAPACITY: usize = 32; // arbitrary value
 const IPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+// Messages are small JSON control/telemetry frames; the tungstenite defaults
+// (128 KiB read/write buffers, 64 MiB max message) are sized for general
+// purpose use and waste memory per connection on an embedded gateway.
+const WS_READ_BUFFER_SIZE: usize = 8 * 1024;
+const WS_WRITE_BUFFER_SIZE: usize = 8 * 1024;
+const WS_MAX_MESSAGE_SIZE: usize = 1024 * 1024;
+const WS_MAX_FRAME_SIZE: usize = 256 * 1024;
 
 static PASSWORD: OnceLock<String> = OnceLock::new();
 
@@ -506,7 +514,19 @@ async fn run_ws_accept_loop(
                                         Ok(resp)
                                     };
 
-                                    match tokio_tungstenite::accept_hdr_async(tls_stream, callback).await {
+                                    let ws_config = WebSocketConfig::default()
+                                        .read_buffer_size(WS_READ_BUFFER_SIZE)
+                                        .write_buffer_size(WS_WRITE_BUFFER_SIZE)
+                                        .max_message_size(Some(WS_MAX_MESSAGE_SIZE))
+                                        .max_frame_size(Some(WS_MAX_FRAME_SIZE));
+
+                                    match tokio_tungstenite::accept_hdr_async_with_config(
+                                        tls_stream,
+                                        callback,
+                                        Some(ws_config),
+                                    )
+                                    .await
+                                    {
                                         Ok(ws) => {
                                             debug!("New WebSocket connection established from {addr}");
                                             let (ws_write, ws_read) = ws.split();
