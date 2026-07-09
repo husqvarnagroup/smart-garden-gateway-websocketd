@@ -149,7 +149,9 @@ fn check_basic_auth(auth_header: Option<&str>) -> bool {
     };
 
     let password = PASSWORD.get().expect("PASSWORD not initialized");
-    let credentials_valid = credentials.ends_with(format!(":{password}").as_str());
+    let credentials_valid = credentials
+        .split_once(':')
+        .is_some_and(|(_, pass)| pass == password);
 
     if credentials_valid {
         debug!("Authorization successful");
