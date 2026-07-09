@@ -2,7 +2,7 @@ use anyhow::Context;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -172,7 +172,7 @@ fn check_basic_auth(auth_header: Option<&str>) -> bool {
 
 async fn ws_sender<S>(
     mut ws: S,
-    mut pub_rx: broadcast::Receiver<Msg>,
+    mut pub_rx: broadcast::Receiver<Arc<str>>,
     mut rep_rx: mpsc::Receiver<Vec<Msg>>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) where
@@ -188,16 +188,9 @@ async fn ws_sender<S>(
             }
             res = pub_rx.recv() => {
                 match res {
-                    Ok(msg) => {
-                        debug!("Publishing to WebSocket: {msg:?}");
-                        let msg_json = match msg.to_json() {
-                            Ok(json) => json,
-                            Err(e) => {
-                                error!("Failed to serialize message to JSON: {e:?}");
-                                continue;
-                            }
-                        };
-                        if let Err(e) = ws.send(Message::Text(msg_json.into())).await {
+                    Ok(msg_json) => {
+                        debug!("Publishing to WebSocket: {msg_json}");
+                        if let Err(e) = ws.send(Message::Text(msg_json.to_string().into())).await {
                             error!("WebSocket send error: {e:?}");
                             break;
                         }
@@ -428,7 +421,7 @@ async fn run_req_service(
 
 async fn run_sub_service(
     socket_path: &str,
-    pub_tx: broadcast::Sender<Msg>,
+    pub_tx: broadcast::Sender<Arc<str>>,
     mut shutdown_rx: watch::Receiver<bool>,
     service_name: &'static str,
 ) {
@@ -450,7 +443,14 @@ async fn run_sub_service(
                         "source".to_string(),
                         serde_json::Value::String(service_name.to_string()),
                     );
-                    if let Err(e) = pub_tx.send(event_msg) {
+                    let json = match event_msg.to_json() {
+                        Ok(json) => json,
+                        Err(e) => {
+                            error!("Failed to serialize event message to JSON: {e:?}");
+                            return;
+                        }
+                    };
+                    if let Err(e) = pub_tx.send(Arc::from(json)) {
                         error!("Failed to forward event to WebSocket: {e:?}");
                     }
                 }
@@ -467,7 +467,7 @@ async fn run_sub_service(
 async fn run_ws_accept_loop(
     listener: tokio::net::TcpListener,
     tls_acceptor: TlsAcceptor,
-    pub_tx: broadcast::Sender<Msg>,
+    pub_tx: broadcast::Sender<Arc<str>>,
     req_lb_tx: mpsc::Sender<(Msg, oneshot::Sender<Msg>)>,
     req_lw_tx: mpsc::Sender<(Msg, oneshot::Sender<Msg>)>,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -617,7 +617,7 @@ async fn main() -> anyhow::Result<()> {
         .set(get_password())
         .expect("PASSWORD already initialized");
 
-    let (pub_tx, _) = broadcast::channel::<Msg>(CHANNEL_CAPACITY);
+    let (pub_tx, _) = broadcast::channel::<Arc<str>>(CHANNEL_CAPACITY);
     let (req_lb_tx, req_lb_rx) = mpsc::channel::<(Msg, oneshot::Sender<Msg>)>(CHANNEL_CAPACITY);
     let (req_lw_tx, req_lw_rx) = mpsc::channel::<(Msg, oneshot::Sender<Msg>)>(CHANNEL_CAPACITY);
 
