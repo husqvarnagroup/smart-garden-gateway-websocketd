@@ -64,11 +64,11 @@ struct Msg {
 impl Msg {
     fn from_json(json: &str) -> Result<Self, String> {
         match serde_json::from_str::<Vec<Msg>>(json) {
-            Ok(vec) if !vec.is_empty() => {
+            Ok(mut vec) if !vec.is_empty() => {
                 if vec.len() > 1 {
                     warn!("Parsed array with multiple messages, only the first will be processed: {vec:?}");
                 }
-                Ok(vec[0].clone())
+                Ok(vec.swap_remove(0))
             }
             Ok(_) => Err("Failed to parse empty array".to_string()),
             Err(e) => Err(format!("Failed to parse JSON: {json}, error: {e}")),
@@ -91,7 +91,7 @@ impl Msg {
     }
 
     fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&vec![self])
+        serde_json::to_string(&[self])
     }
 }
 
@@ -388,7 +388,7 @@ async fn run_req_service(
                     }
                 };
 
-                let mut rep_msg = match timeout(IPC_REQUEST_TIMEOUT, req_service.send(req_json.clone())).await {
+                let mut rep_msg = match timeout(IPC_REQUEST_TIMEOUT, req_service.send(req_json)).await {
                     Err(_) => {
                         error!("Did not get a response from {socket_path} within {}s", IPC_REQUEST_TIMEOUT.as_secs());
                         Msg::from_error_msg("Request timed out")
@@ -406,7 +406,7 @@ async fn run_req_service(
                         debug!("Received reply from {socket_path}: {msg:?}");
                         msg
                     }
-                    Ok(Err(e)) => Msg::from_error_msg(&format!("Failed to send request {req_json}, error: {e:?}"))
+                    Ok(Err(e)) => Msg::from_error_msg(&format!("Failed to send request, error: {e:?}"))
                 };
 
                 rep_msg.request_id = request_id;
