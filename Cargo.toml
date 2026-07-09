@@ -13,7 +13,7 @@ gardenalog = { git = "https://github.com/husqvarnagroup/smart-garden-gateway-cra
 hostname = "0.4"
 native-tls = "=0.2.13" # held back for Rust 1.75.0
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["raw_value"] }
 sg-ipc = { git = "https://github.com/husqvarnagroup/smart-garden-gateway-crates.git" }
 tokio = { version = "1.50", features = ["macros", "net", "time", "io-util", "fs", "signal"] }
 tokio-native-tls = "0.3"

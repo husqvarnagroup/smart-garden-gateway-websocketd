@@ -53,8 +53,10 @@ struct Msg {
     metadata: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     op: Option<String>,
+    // Passed through untouched; kept as raw JSON so websocketd doesn't pay
+    // to parse a tree it never inspects.
     #[serde(skip_serializing_if = "Option::is_none")]
-    payload: Option<HashMap<String, serde_json::Value>>,
+    payload: Option<Box<serde_json::value::RawValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,15 +78,14 @@ impl Msg {
     }
 
     fn from_error_msg(error: &str) -> Self {
+        let payload_json = serde_json::to_string(&serde_json::json!({ "vs": error }))
+            .expect("serializing a string map cannot fail");
         Msg {
             metadata: Some(HashMap::from([(
                 "error_source".to_string(),
                 serde_json::Value::String("websocketd".to_string()),
             )])),
-            payload: Some(HashMap::from([(
-                "vs".to_string(),
-                serde_json::Value::String(error.to_string()),
-            )])),
+            payload: serde_json::value::RawValue::from_string(payload_json).ok(),
             success: Some(false),
             ..Default::default()
         }
