@@ -378,7 +378,10 @@ async fn run_req_service(
                     Ok(service) => service,
                     Err(e) => {
                         error!("Failed to create IPC ReqService for {socket_path}: {e:?}");
-                        return;
+                        let mut err_msg = Msg::from_error_msg("Internal error");
+                        err_msg.request_id = request_id;
+                        let _ = rep_tx.send(err_msg);
+                        continue;
                     }
                 };
 
