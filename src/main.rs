@@ -198,7 +198,11 @@ async fn ws_sender<S>(
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
-            Some(msgs) = rep_rx.recv() => {
+            msgs = rep_rx.recv() => {
+                let Some(msgs) = msgs else {
+                    debug!("WebSocket sender shutting down: reply channel closed");
+                    break;
+                };
                 debug!("Forwarding replies to WebSocket: {msgs:?}");
                 let msg_json = match serde_json::to_string(&msgs) {
                     Ok(json) => json,
