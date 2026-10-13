@@ -1,4 +1,4 @@
-use crate::auth::check_basic_auth;
+use crate::auth::{check_basic_auth, init_auth};
 use anyhow::Context;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -558,6 +558,7 @@ fn register_mdns_service() -> anyhow::Result<astro_dnssd::RegisteredDnsService> 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     gardenalog::init_tracing();
+    init_auth();
 
     let (pub_tx, _) = broadcast::channel::<Msg>(CHANNEL_CAPACITY);
     let (req_lb_tx, req_lb_rx) = mpsc::channel::<(Msg, oneshot::Sender<Msg>)>(CHANNEL_CAPACITY);

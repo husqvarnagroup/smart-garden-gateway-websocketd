@@ -854,6 +854,7 @@ dependencies = [
  "getrandom",
  "hostname",
  "native-tls",
+ "openssl",
  "openssl-sys",
  "serde",
  "serde_json",
