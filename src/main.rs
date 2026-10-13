@@ -1,8 +1,8 @@
+use crate::auth::check_basic_auth;
 use anyhow::Context;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -14,6 +14,8 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
+
+mod auth;
 
 const LEMONBEATD_COMMAND_PATH: &str = "/tmp/lemonbeatd-command.ipc";
 const LEMONBEATD_EVENT_PATH: &str = "/tmp/lemonbeatd-event.ipc";
@@ -33,8 +35,6 @@ const WS_READ_BUFFER_SIZE: usize = 8 * 1024;
 const WS_WRITE_BUFFER_SIZE: usize = 8 * 1024;
 const WS_MAX_MESSAGE_SIZE: usize = 1024 * 1024;
 const WS_MAX_FRAME_SIZE: usize = 256 * 1024;
-
-static PASSWORD: OnceLock<String> = OnceLock::new();
 
 #[derive(Debug, Deserialize, Default, Serialize, Clone)]
 struct MsgEntity {
@@ -114,58 +114,6 @@ async fn load_tls_identity() -> anyhow::Result<native_tls::Identity> {
         .with_context(|| format!("Failed to read key from {key_path}"))?;
 
     native_tls::Identity::from_pkcs8(&cert, &key).with_context(|| "Failed to create TLS identity")
-}
-
-fn get_password() -> String {
-    if let Ok(result) = std::process::Command::new("fw_printenv")
-        .arg("-n")
-        .arg("gatewayid")
-        .output()
-    {
-        if result.status.success() {
-            if let Ok(gatewayid) = std::str::from_utf8(&result.stdout) {
-                if let Some(password) = gatewayid.trim().split('-').next() {
-                    return password.to_string();
-                }
-            }
-        }
-    }
-    warn!("Failed to derive password from gateway ID, falling back to development password");
-    "password-for-dev".to_string()
-}
-
-fn check_basic_auth(auth_header: Option<&str>) -> bool {
-    let Some(auth) = auth_header else {
-        debug!("No authorization header provided");
-        return false;
-    };
-
-    let Some(encoded) = auth.strip_prefix("Basic ") else {
-        debug!("Authorization header missing 'Basic ' prefix");
-        return false;
-    };
-
-    let Ok(decoded) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
-    else {
-        debug!("Failed to decode base64 authorization");
-        return false;
-    };
-
-    let Ok(credentials) = String::from_utf8(decoded) else {
-        debug!("Authorization credentials not valid UTF-8");
-        return false;
-    };
-
-    let password = PASSWORD.get().expect("PASSWORD not initialized");
-    let credentials_valid = credentials.ends_with(format!(":{password}").as_str());
-
-    if credentials_valid {
-        debug!("Authorization successful");
-    } else {
-        error!("Invalid credentials provided");
-    }
-
-    credentials_valid
 }
 
 async fn ws_sender<S>(
@@ -610,10 +558,6 @@ fn register_mdns_service() -> anyhow::Result<astro_dnssd::RegisteredDnsService> 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     gardenalog::init_tracing();
-
-    PASSWORD
-        .set(get_password())
-        .expect("PASSWORD already initialized");
 
     let (pub_tx, _) = broadcast::channel::<Msg>(CHANNEL_CAPACITY);
     let (req_lb_tx, req_lb_rx) = mpsc::channel::<(Msg, oneshot::Sender<Msg>)>(CHANNEL_CAPACITY);
