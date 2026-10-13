@@ -3,7 +3,7 @@ use tracing::{debug, error, warn};
 
 static PASSWORD: OnceLock<String> = OnceLock::new();
 
-fn get_password() -> String {
+fn get_gatewayid() -> Option<String> {
     if let Ok(result) = std::process::Command::new("fw_printenv")
         .arg("-n")
         .arg("gatewayid")
@@ -11,10 +11,17 @@ fn get_password() -> String {
     {
         if result.status.success() {
             if let Ok(gatewayid) = std::str::from_utf8(&result.stdout) {
-                if let Some(password) = gatewayid.trim().split('-').next() {
-                    return password.to_string();
-                }
+                return Some(gatewayid.trim().to_string());
             }
+        }
+    }
+    None
+}
+
+fn get_password() -> String {
+    if let Some(gatewayid) = get_gatewayid() {
+        if let Some(password) = gatewayid.split('-').next() {
+            return password.to_string();
         }
     }
     warn!("Failed to derive password from gateway ID, falling back to development password");
