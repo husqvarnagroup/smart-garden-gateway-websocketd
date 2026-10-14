@@ -558,7 +558,7 @@ fn register_mdns_service() -> anyhow::Result<astro_dnssd::RegisteredDnsService> 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     gardenalog::init_tracing();
-    init_auth();
+    init_auth().await;
 
     let (pub_tx, _) = broadcast::channel::<Msg>(CHANNEL_CAPACITY);
     let (req_lb_tx, req_lb_rx) = mpsc::channel::<(Msg, oneshot::Sender<Msg>)>(CHANNEL_CAPACITY);

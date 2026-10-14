@@ -4,6 +4,8 @@ use openssl::pkcs5::pbkdf2_hmac;
 use std::sync::OnceLock;
 use tracing::{debug, error, warn};
 
+const PASSWORD_PATH: &str = "/etc/gateway-config-interface/password";
+
 static GATEWAY_ID: OnceLock<Option<String>> = OnceLock::new();
 static PASSWORD_HASH: OnceLock<String> = OnceLock::new();
 
@@ -32,6 +34,24 @@ fn get_password_hash_from_gatewayid() -> String {
     calculate_password_hash("password-for-dev")
 }
 
+async fn get_password_hash_from_file() -> Option<String> {
+    match tokio::fs::read_to_string(PASSWORD_PATH).await {
+        Ok(hash_from_file) => Some(hash_from_file),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        // Any other error must not fall back to the default password
+        Err(_) => {
+            error!("Failed to read password from {PASSWORD_PATH}");
+            Some("invalid".to_string())
+        }
+    }
+}
+
+async fn get_password_hash() -> String {
+    get_password_hash_from_file()
+        .await
+        .unwrap_or_else(get_password_hash_from_gatewayid)
+}
+
 fn calculate_password_hash(password: &str) -> String {
     const PASSWORD_HASH_ITERATIONS: usize = 2048;
     const PASSWORD_HASH_LEN: usize = 20; // SHA1 output length in bytes
@@ -53,12 +73,12 @@ fn calculate_password_hash(password: &str) -> String {
 }
 
 #[allow(clippy::module_name_repetitions)]
-pub fn init_auth() {
+pub async fn init_auth() {
     GATEWAY_ID
         .set(get_gatewayid())
         .expect("Failed to initialize GATEWAY_ID");
     PASSWORD_HASH
-        .set(get_password_hash_from_gatewayid())
+        .set(get_password_hash().await)
         .expect("PASSWORD_HASH already initialized");
 }
 
